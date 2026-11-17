@@ -93,7 +93,7 @@ export function Assistant({ convId }: { convId: string | null }) {
           else if (ev === "tool") state.tools = [...state.tools, data.label];
           else if (ev === "artifact") state.artifacts = [...state.artifacts, data.artifact];
           else if (ev === "status") state.status = data.message;
-          else if (ev === "reset") { state.text = ""; state.artifacts = []; state.status = "Claude was unavailable — switched to offline analysis"; }
+          else if (ev === "reset") { state.text = ""; state.artifacts = []; state.status = "The AI model was unavailable; switched to offline analysis"; }
           else if (ev === "error") state.error = data.message ?? "Something went wrong.";
           else if (ev === "done") {
             done = true;
@@ -186,7 +186,7 @@ export function Assistant({ convId }: { convId: string | null }) {
         <div className="thread" ref={threadRef} onScroll={onScroll} aria-live="polite" aria-busy={Boolean(live)}>
           <div className="thread-inner">
             {offline && (
-              <div className="notice" role="note"><IconWarn size={18} /><div><strong>Offline analysis mode.</strong> Answers come from a built-in rule engine over the same live data. It handles common questions about delays, costs, milestones, funds and projects. For open-ended questions and richer reasoning, add an <code>ANTHROPIC_API_KEY</code> to <code>.env</code> and restart the server.</div></div>
+              <div className="notice" role="note"><IconWarn size={18} /><div><strong>Offline analysis mode.</strong> Answers come from a built-in rule engine over the same live data. It handles common questions about delays, costs, milestones, funds and projects. For open-ended questions and richer reasoning, add a <code>GROQ_API_KEY</code> to <code>.env</code> and restart the server.</div></div>
             )}
             {empty && <Welcome onPick={send} multilingual={Boolean(health?.llm.configured)} />}
             {convError && <div className="error-box" role="alert"><IconWarn size={18} /><div style={{ flex: 1 }}>{convError}</div><button className="btn btn-secondary btn-sm" onClick={newChat}>Start a new conversation</button></div>}
@@ -234,7 +234,7 @@ export function Assistant({ convId }: { convId: string | null }) {
             )}
           </form>
           <div className="composer-foot">
-            <span>{health?.llm.configured ? `Claude · ${health.llm.model}` : "Offline analysis engine"} · answers use live project data; check critical figures before acting.</span>
+            <span>{health?.llm.configured ? `Groq · ${health.llm.model}` : "Offline analysis engine"} · answers use live project data; check critical figures before acting.</span>
             <span className="num" aria-live="polite">{input.length > MAX_LEN * 0.8 ? `${input.length}/${MAX_LEN}` : ""}</span>
           </div>
         </div>
@@ -252,7 +252,7 @@ function AssistantMsg({ text, artifacts, meta, index }: { text: string; artifact
         <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
         {artifacts.map((a, i) => <ArtifactView key={i} artifact={a} index={index} />)}
         <div className="msg-meta">
-          {meta.mode === "claude" ? <span className="badge badge-done"><IconSpark size={12} />Claude</span> : meta.mode === "offline" ? <span className="badge badge-neutral">Offline engine</span> : null}
+          {meta.mode === "llm" || meta.mode === "claude" ? <span className="badge badge-done"><IconSpark size={12} />{meta.model ?? "AI model"}</span> : meta.mode === "offline" ? <span className="badge badge-neutral">Offline engine</span> : null}
           {meta.tools && meta.tools.length > 0 && <span>Used: {meta.tools.map((t) => t.replace(/_/g, " ")).join(", ")}</span>}
         </div>
       </div>

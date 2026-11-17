@@ -2,7 +2,7 @@
 import { openDb } from "./db.ts";
 import { seedDatabase } from "./seed.ts";
 import { createApp } from "./app.ts";
-import { MODEL, llmConfigured } from "./llm/claude.ts";
+import { MODEL, llmConfigured } from "./llm/groq.ts";
 
 const db = openDb();
 const count = (db.rw.prepare("SELECT COUNT(*) AS n FROM projects").get() as { n: number }).n;
@@ -18,7 +18,7 @@ const portArg = process.argv.find((a) => a.startsWith("--port="))?.split("=")[1]
 const port = Number(portArg || process.env.API_PORT || process.env.PORT) || 8787;
 const server = app.listen(port, () => {
   console.log(`Yatra Insight API on http://localhost:${port}`);
-  console.log(llmConfigured() ? `Claude enabled (${MODEL}).` : "No ANTHROPIC_API_KEY set — running in offline analysis mode.");
+  console.log(llmConfigured() ? `Groq enabled (${MODEL}).` : "No GROQ_API_KEY set — running in offline analysis mode.");
 });
 
 const shutdown = () => {

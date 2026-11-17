@@ -6,7 +6,7 @@ import { api } from "./api";
 export interface Health {
   ok: boolean;
   asOf: string;
-  llm: { configured: boolean; model: string; effort: string };
+  llm: { configured: boolean; provider?: string; model: string; effort: string | null };
   data: { projects: number; reports: number };
 }
 

@@ -1,5 +1,5 @@
 // Offline question answering: a transparent rule-based interpreter used when
-// no Anthropic API key is configured (or the API is unreachable). It understands
+// no Groq API key is configured (or the API is unreachable). It understands
 // the most common monitoring questions and answers them with the same tools the
 // LLM uses, so numbers are identical in both modes.
 

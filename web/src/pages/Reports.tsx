@@ -42,7 +42,7 @@ export function Reports() {
         <div>
           <p className="eyebrow">Reporting</p>
           <h1><span className="rise">Progress reports</span></h1>
-          <p className="lede">Monthly progress reports, ready to print, built from the latest data. The figures come straight from the analytics; {health?.llm.configured ? "Claude writes the narrative and recommendations." : "the narrative is written by the offline template (add an API key to have Claude write it)."}</p>
+          <p className="lede">Monthly progress reports, ready to print, built from the latest data. The figures come straight from the analytics; {health?.llm.configured ? "the AI model writes the narrative and recommendations." : "the narrative is written by the offline template (add a Groq API key to have the AI model write it)."}</p>
         </div>
       </div>
       <div className="grid grid-main">
@@ -58,7 +58,7 @@ export function Reports() {
                     <div className="icon-tile"><IconReport size={16} /></div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <span className="cell-title">{r.title}</span>
-                      <span className="cell-sub">As of {fmtDate(r.as_of)} · {r.generated_by.startsWith("claude") ? "Claude narrative" : "Template narrative"} · {relTime(r.created_at)}</span>
+                      <span className="cell-sub">As of {fmtDate(r.as_of)} · {/^(groq|claude)/.test(r.generated_by) ? "AI narrative" : "Template narrative"} · {relTime(r.created_at)}</span>
                     </div>
                     <IconChevronRight size={16} />
                   </Link>
@@ -92,8 +92,8 @@ export function Reports() {
               </Field>
             )}
             {err && (scope === "portfolio" || projectId) && <div className="error-box" role="alert">{err}</div>}
-            <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? <><span className="spinner" />Generating{health?.llm.configured ? " with Claude" : ""}…</> : <><IconSpark size={16} />Generate report</>}</button>
-            {busy && health?.llm.configured && <p className="hint">Claude is writing the narrative — this can take up to a minute.</p>}
+            <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? <><span className="spinner" />Generating{health?.llm.configured ? " with Groq" : ""}…</> : <><IconSpark size={16} />Generate report</>}</button>
+            {busy && health?.llm.configured && <p className="hint">The AI model is writing the narrative; this takes a few seconds.</p>}
           </form>
         </Card>
       </div>

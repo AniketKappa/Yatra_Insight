@@ -106,10 +106,10 @@ export function App() {
           ))}
         </nav>
         <div className="sidebar-foot">
-          <div className="mode-chip" title={llm?.configured ? `Model ${llm.model}, effort ${llm.effort}` : "Set ANTHROPIC_API_KEY to enable Claude"}>
+          <div className="mode-chip" title={llm?.configured ? `Model ${llm.model}${llm.effort ? `, reasoning ${llm.effort}` : ""}` : "Set GROQ_API_KEY to enable the AI model"}>
             <span className="mode-dot" style={{ background: healthError ? "var(--crit)" : llm?.configured ? "var(--good)" : "var(--warn)" }} aria-hidden="true" />
             <span>
-              <strong style={{ display: "block", fontWeight: 600 }}>{healthError ? "Server unreachable" : !health ? "Connecting…" : llm?.configured ? "Claude connected" : "Offline analysis mode"}</strong>
+              <strong style={{ display: "block", fontWeight: 600 }}>{healthError ? "Server unreachable" : !health ? "Connecting…" : llm?.configured ? "Groq connected" : "Offline analysis mode"}</strong>
               <span className="muted">{healthError ? "Start the API and reload." : llm?.configured ? llm.model : "Add an API key for full AI answers."}</span>
             </span>
           </div>

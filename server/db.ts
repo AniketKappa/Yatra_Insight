@@ -124,8 +124,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- api_messages holds the exact Anthropic message history (append-only, so
--- thinking blocks are replayed unchanged). turns holds what the UI renders.
+-- api_messages holds the exact chat-completions history (append-only, so
+-- tool calls and results stay paired). turns holds what the UI renders.
 CREATE TABLE IF NOT EXISTS api_messages (
   id               INTEGER PRIMARY KEY,
   conversation_id  TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,

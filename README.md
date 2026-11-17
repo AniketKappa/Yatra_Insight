@@ -5,7 +5,7 @@
 <p align="center"><strong>Ask your tourism projects anything.</strong><br>
 An LLM-powered monitoring and decision-support layer for tourism infrastructure and development projects.</p>
 
-<p align="center">Node 24 · React 19 · SQLite (built in) · Claude API · no database server, no UI libraries</p>
+<p align="center">Node 24 · React 19 · SQLite (built in) · Groq API · no database server, no UI libraries</p>
 
 ---
 
@@ -18,9 +18,9 @@ Officials monitoring projects under schemes such as Swadesh Darshan 2.0, PRASHAD
 | **Natural-language questions** | *"Which pilgrimage projects in UP are behind schedule?"*, *"What should we do about Konark?"*. Answers stream in with the evidence tables (CSV export) and charts alongside. |
 | **Delays, overruns and risks, automatically** | Every project gets a forecast finish date and final cost (earned schedule and earned value), a health status, flags, and a 0–100 risk score with each factor explained. |
 | **Corrective measures** | Specific actions, each with an owner and a priority, tied to the flag or open issue behind it. |
-| **Progress reports** | Portfolio, filtered or single-project reports, with a narrative written by Claude. They print cleanly to PDF and download as Markdown. |
+| **Progress reports** | Portfolio, filtered or single-project reports, with a narrative written by the AI model. They print cleanly to PDF and download as Markdown. |
 | **Milestones and monthly updates** | Milestone timelines and early-warning alerts. Recording a monthly report (with validation) recalculates everything. |
-| **Works without an API key** | An offline analysis engine answers common questions from the same data, and the app falls back to it if Claude is unavailable. |
+| **Works without an API key** | An offline analysis engine answers common questions from the same data, and the app falls back to it if Groq is unavailable. |
 
 > **Demo data.** The app seeds 48 synthetic projects across 27 states and union territories. The destinations are real places, but the projects, costs, people and issues are invented.
 
@@ -35,22 +35,21 @@ npm run dev
 
 Open http://localhost:5173. The API runs on port 8787 and creates and seeds `data/yatra.db` on first run.
 
-### Turn on Claude
+### Turn on the AI model (Groq)
 
 Without an API key the app runs in **offline analysis mode**: a transparent rule-based engine answers common questions from the same data. For open-ended questions and written report narratives, add a key:
 
 ```bash
-cp .env.example .env   # then set ANTHROPIC_API_KEY=...
+cp .env.example .env   # then set GROQ_API_KEY=gsk_...
 ```
 
-Restart `npm run dev`. The sidebar shows **Claude connected**.
+Restart `npm run dev`. The sidebar shows **Groq connected**. Get a free key at [console.groq.com/keys](https://console.groq.com/keys).
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | — | Enables Claude |
-| `ANTHROPIC_MODEL` | `claude-opus-5-5` | Model for chat and reports |
-| `ANTHROPIC_EFFORT` | `medium` | `low` / `medium` / `high` / `xhigh` / `max` |
-| `ANTHROPIC_FALLBACKS` | on | Server-side refusal fallback (`fallbacks: "default"`); set to `off` to disable |
+| `GROQ_API_KEY` | — | Enables the AI model |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Any Groq chat model with tool calling, e.g. `llama-3.3-70b-versatile` or `openai/gpt-oss-20b` (faster, cheaper) |
+| `GROQ_REASONING_EFFORT` | `medium` | `low` / `medium` / `high`; used only by reasoning models (gpt-oss, Qwen 3) |
 | `PORT` | `8787` | Port for `npm start` |
 | `AS_OF_DATE` | today | Pin "today" for repeatable demos |
 
@@ -80,7 +79,7 @@ Yatra Insight is a single Node process: the API serves the built UI. The SQLite 
 2. **Runtime:** Docker (it uses the included `Dockerfile`).
 3. **Disk:** add a persistent disk mounted at `/app/data` (1 GB is plenty).
 4. **Environment:**
-   - `ANTHROPIC_API_KEY`: optional; without it the app runs in offline mode.
+   - `GROQ_API_KEY`: optional; without it the app runs in offline mode.
    - `SITE_URL`: your public URL, e.g. `https://yatra-insight.onrender.com` (it makes link previews work). Render passes environment variables to the Docker build, where the Dockerfile's `ARG SITE_URL` picks it up.
 5. Deploy. The service listens on port `8787`; Render detects it.
 
@@ -93,7 +92,7 @@ Both build the same `Dockerfile`. Attach a volume at `/app/data`, set the same e
 fly launch --no-deploy            # accept the Dockerfile, choose a region (e.g. bom for Mumbai)
 fly volumes create data --size 1
 # then in fly.toml add:  [mounts]  source = "data"  destination = "/app/data"
-fly secrets set ANTHROPIC_API_KEY=sk-ant-...
+fly secrets set GROQ_API_KEY=gsk_...
 fly deploy --build-arg SITE_URL=https://<app>.fly.dev
 ```
 
@@ -102,7 +101,7 @@ fly deploy --build-arg SITE_URL=https://<app>.fly.dev
 ```bash
 docker build -t yatra-insight --build-arg SITE_URL=https://your-domain .
 docker run -d --name yatra -p 8787:8787 -v yatra-data:/app/data \
-  -e ANTHROPIC_API_KEY=sk-ant-... yatra-insight
+  -e GROQ_API_KEY=gsk_... yatra-insight
 ```
 
 Put it behind a reverse proxy (nginx or Caddy) for HTTPS. Turn off proxy buffering for `/api/conversations/*/messages` so streamed answers arrive live (`proxy_buffering off;` in nginx).
@@ -144,11 +143,12 @@ web/            React 19 + Vite. No UI or chart libraries: hand-built SVG charts
 server/
   analytics.ts  EVM / earned-schedule metrics, flags, risk, recommendations, portfolio roll-ups
   repo.ts       SQLite access, validated writes, metrics cache → project_metrics table
-  tools.ts      Analysis tools shared by Claude and the offline engine
+  tools.ts      Analysis tools shared by the LLM and the offline engine
   sqlguard.ts   Read-only SQL for the model: read-only connection + single SELECT + row cap
-  llm/agent.ts  Claude streaming tool-use loop (append-only history, refusal fallback)
-  llm/offline.ts Rule-based question answering when no key is set (or Claude fails)
-  reports.ts    Fixed data sections + narrative (Claude or template)
+  llm/agent.ts  Groq streaming tool-calling loop (append-only history)
+  llm/groq.ts   Groq client, model and reasoning settings, error messages
+  llm/offline.ts Rule-based question answering when no key is set (or Groq fails)
+  reports.ts    Fixed data sections + narrative (Groq model or template)
   app.ts        Express API, SSE chat streaming
 ```
 

@@ -78,7 +78,7 @@ export function AskHero({ compact = false }: { compact?: boolean }) {
   return (
     <section className="ask-hero" aria-labelledby="ask-h">
       <div className="row" style={{ gap: 8 }}>
-        <span className="badge badge-done"><IconSpark size={14} />{health?.llm.configured ? "Claude" : "Offline mode"}</span>
+        <span className="badge badge-done"><IconSpark size={14} />{health?.llm.configured ? "Groq" : "Offline mode"}</span>
         <h2 id="ask-h" style={{ fontSize: "var(--t-h3)" }}>Ask about your projects in plain language</h2>
       </div>
       {!compact && <p className="muted" style={{ marginTop: 8, maxWidth: "70ch" }}>Delays, cost overruns, stalled works, upcoming milestones, fund utilisation — answered from live project data, with corrective actions.</p>}

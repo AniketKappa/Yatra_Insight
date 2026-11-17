@@ -204,6 +204,6 @@ export interface Turn {
   role: "user" | "assistant";
   text: string;
   artifacts: Artifact[];
-  meta: { mode?: "claude" | "offline"; model?: string; error?: string; tools?: string[]; notice?: string };
+  meta: { mode?: "llm" | "claude" | "offline"; model?: string; error?: string; tools?: string[]; notice?: string };
   created_at: string;
 }

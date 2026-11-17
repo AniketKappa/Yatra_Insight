@@ -5,15 +5,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import type Anthropic from "@anthropic-ai/sdk";
+import type Groq from "groq-sdk";
 import type { Db } from "./db.ts";
 import type { Artifact, PortfolioFilters, Turn } from "./types.ts";
 import { Repo, NotFoundError, ValidationError } from "./repo.ts";
 import { matchesFilters } from "./analytics.ts";
 import { seedDatabase } from "./seed.ts";
 import { answerOffline } from "./llm/offline.ts";
-import { runAgent, type AgentEvent } from "./llm/agent.ts";
-import { EFFORT, MODEL, describeError, getClient, llmConfigured } from "./llm/claude.ts";
+import { runAgent, type AgentEvent, type ChatMessage } from "./llm/agent.ts";
+import { EFFORT, IS_REASONING_MODEL, MODEL, describeError, getClient, llmConfigured } from "./llm/groq.ts";
 import { generateReport, getReport, listReports } from "./reports.ts";
 import { todayISO } from "./lib/dates.ts";
 
@@ -21,9 +21,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const MAX_QUESTION = 2000;
 const MAX_USER_TURNS = 40;
 
-type MessageParam = Anthropic.Beta.BetaMessageParam;
+type MessageParam = ChatMessage;
 
-export function createApp(db: Db, opts: { client?: Anthropic | null } = {}) {
+export function createApp(db: Db, opts: { client?: Groq | null } = {}) {
   const repo = new Repo(db.rw);
   const clientFor = () => (opts.client !== undefined ? opts.client : getClient());
   const busy = new Set<string>();
@@ -55,7 +55,7 @@ export function createApp(db: Db, opts: { client?: Anthropic | null } = {}) {
   // ---- Status ------------------------------------------------------------------
   app.get("/api/health", (_req, res) => {
     const c = db.rw.prepare("SELECT (SELECT COUNT(*) FROM projects) AS projects, (SELECT COUNT(*) FROM progress_reports) AS reports").get() as { projects: number; reports: number };
-    res.json({ ok: true, asOf: todayISO(), llm: { configured: clientFor() !== null && (opts.client !== undefined || llmConfigured()), model: MODEL, effort: EFFORT }, data: c });
+    res.json({ ok: true, asOf: todayISO(), llm: { configured: clientFor() !== null && (opts.client !== undefined || llmConfigured()), provider: "Groq", model: MODEL, effort: IS_REASONING_MODEL ? EFFORT : null }, data: c });
   });
 
   app.get("/api/meta", (_req, res) => res.json(repo.facets()));
@@ -87,7 +87,7 @@ export function createApp(db: Db, opts: { client?: Anthropic | null } = {}) {
 
   app.post("/api/conversations", (_req, res) => {
     const id = randomUUID();
-    db.rw.prepare("INSERT INTO conversations (id, title, mode) VALUES (?,?,?)").run(id, "New conversation", clientFor() ? "claude" : "offline");
+    db.rw.prepare("INSERT INTO conversations (id, title, mode) VALUES (?,?,?)").run(id, "New conversation", clientFor() ? "llm" : "offline");
     res.status(201).json(db.rw.prepare("SELECT * FROM conversations WHERE id=?").get(id));
   });
 
@@ -143,23 +143,23 @@ export function createApp(db: Db, opts: { client?: Anthropic | null } = {}) {
 
       if (client) {
         const history = (db.rw.prepare("SELECT role, content FROM api_messages WHERE conversation_id=? ORDER BY id").all(convId) as { role: string; content: string }[])
-          .map((r) => ({ role: r.role as "user" | "assistant", content: JSON.parse(r.content) }));
+          .map((r) => JSON.parse(r.content) as MessageParam);
         try {
           const result = await runAgent({ client, repo, ro: db.ro, history, question, signal: abort.signal, emit: (e: AgentEvent) => send(e.type, e) });
           text = result.text;
           artifacts = result.artifacts;
           appended = result.appended;
-          meta = { mode: "claude", model: result.model, tools: result.tools };
+          meta = { mode: "llm", model: result.model, tools: result.tools };
         } catch (err) {
           if (abort.signal.aborted) throw err;
           const off = answerOffline(question, repo);
           text = off.text;
           artifacts = off.artifacts;
-          meta = { mode: "offline", error: describeError(err), notice: `Claude was unavailable (${describeError(err)}). This answer comes from the offline analysis engine.` };
+          meta = { mode: "offline", error: describeError(err), notice: `The AI model was unavailable (${describeError(err)}). This answer comes from the offline analysis engine.` };
           send("reset", {});
           send("text", { type: "text", delta: text });
           for (const a of artifacts) send("artifact", { type: "artifact", artifact: a });
-          appended = [{ role: "user", content: question }, { role: "assistant", content: [{ type: "text", text }] }];
+          appended = [{ role: "user", content: question }, { role: "assistant", content: text }];
         }
       } else {
         const off = answerOffline(question, repo);
@@ -178,7 +178,7 @@ export function createApp(db: Db, opts: { client?: Anthropic | null } = {}) {
       const insApi = db.rw.prepare("INSERT INTO api_messages (conversation_id, role, content) VALUES (?,?,?)");
       db.rw.exec("BEGIN");
       try {
-        for (const m of appended) insApi.run(convId, m.role, JSON.stringify(m.content));
+        for (const m of appended) insApi.run(convId, m.role, JSON.stringify(m));
         const turnId = Number(insTurn.run(convId, "assistant", text, JSON.stringify(artifacts), JSON.stringify(meta)).lastInsertRowid);
         db.rw.prepare("UPDATE conversations SET updated_at=datetime('now'), mode=? WHERE id=?").run(meta.mode ?? "offline", convId);
         db.rw.exec("COMMIT");

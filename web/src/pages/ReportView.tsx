@@ -47,7 +47,7 @@ export function ReportView({ id }: { id: number }) {
             <p className="eyebrow">{r.scope === "portfolio" ? "Portfolio progress report" : "Project progress report"} · as of {fmtDate(r.as_of)}</p>
             <h1><span className="rise">{r.title.replace(/^(Portfolio|Project) progress report — /, "")}</span></h1>
             <p className="muted small row" style={{ marginTop: 8 }}>
-              {r.generated_by.startsWith("claude") ? <span className="badge badge-done"><IconSpark size={12} />Narrative by {r.generated_by.replace(/^claude \((.*)\)$/, "Claude · $1")}</span> : <span className="badge badge-neutral">Template narrative (offline)</span>}
+              {/^(groq|claude)/.test(r.generated_by) ? <span className="badge badge-done"><IconSpark size={12} />Narrative by {r.generated_by.replace(/^\w+ \((.*)\)$/, "$1")}</span> : <span className="badge badge-neutral">Template narrative (offline)</span>}
               <span>Figures computed from monthly progress reports; generated {fmtDate(r.created_at.slice(0, 10))}.</span>
             </p>
           </div>

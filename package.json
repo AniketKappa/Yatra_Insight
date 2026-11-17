@@ -19,9 +19,9 @@
     "tokens": "node scripts/build-styles.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.8.0",
     "dompurify": "^3.4.18",
     "express": "^5.3.0",
+    "groq-sdk": "^1.6.0",
     "marked": "^18.2.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"

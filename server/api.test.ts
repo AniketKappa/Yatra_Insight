@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
-import Anthropic from "@anthropic-ai/sdk";
+import Groq from "groq-sdk";
 import { openDb } from "./db.ts";
 import { seedDatabase } from "./seed.ts";
 import { createApp } from "./app.ts";
@@ -12,34 +12,40 @@ import { runAgent } from "./llm/agent.ts";
 
 process.env.AS_OF_DATE = "2026-11-16";
 
-type Step = { content: unknown[]; stop_reason: string } | Error;
+// A scripted step: assistant text and/or tool calls, or an error the API throws.
+type Step = { text?: string; calls?: { id: string; name: string; args: unknown }[]; finish?: string } | Error;
 
+/** A fake Groq client that streams OpenAI-style chunks, splitting tool arguments across deltas. */
 function fakeClient(steps: Step[]) {
   const calls: any[] = [];
   let i = 0;
   const client = {
-    beta: {
-      messages: {
-        stream(params: any) {
+    chat: {
+      completions: {
+        async create(params: any) {
           calls.push(structuredClone(params));
           const step = steps[Math.min(i++, steps.length - 1)];
-          const handlers: ((t: string) => void)[] = [];
-          return {
-            on(ev: string, cb: (t: string) => void) { if (ev === "text") handlers.push(cb); return this; },
-            async finalMessage() {
-              if (step instanceof Error) throw step;
-              for (const b of step.content as any[]) if (b.type === "text") handlers.forEach((h) => h(b.text));
-              return { id: `msg_${i}`, type: "message", role: "assistant", model: "claude-opus-5-5", content: step.content, stop_reason: step.stop_reason, usage: {} };
-            },
-          };
+          if (step instanceof Error) throw step;
+          const chunks: any[] = [];
+          const base = { id: `c${i}`, model: "openai/gpt-oss-120b", object: "chat.completion.chunk", created: 0 };
+          if (step.text) for (const part of step.text.match(/.{1,12}/gs) ?? []) chunks.push({ ...base, choices: [{ index: 0, delta: { content: part }, finish_reason: null }] });
+          (step.calls ?? []).forEach((c, idx) => {
+            const json = JSON.stringify(c.args);
+            const half = Math.floor(json.length / 2);
+            chunks.push({ ...base, choices: [{ index: 0, delta: { tool_calls: [{ index: idx, id: c.id, type: "function", function: { name: c.name, arguments: json.slice(0, half) } }] }, finish_reason: null }] });
+            chunks.push({ ...base, choices: [{ index: 0, delta: { tool_calls: [{ index: idx, function: { arguments: json.slice(half) } }] }, finish_reason: null }] });
+          });
+          chunks.push({ ...base, choices: [{ index: 0, delta: {}, finish_reason: step.finish ?? (step.calls?.length ? "tool_calls" : "stop") }] });
+          if (!params.stream) return { model: base.model, choices: [{ message: { role: "assistant", content: step.text ?? "" } }] };
+          return (async function* () { for (const c of chunks) yield c; })();
         },
       },
     },
-  } as unknown as Anthropic;
+  } as unknown as Groq;
   return { client, calls };
 }
 
-async function start(client?: Anthropic | null) {
+async function start(client?: Groq | null) {
   const db = openDb(":memory:");
   seedDatabase(db.rw, { asOf: "2026-11-16" });
   const { app } = createApp(db, { client: client ?? null });
@@ -130,47 +136,53 @@ test("agent loop: calls a tool, feeds the result back, and returns the final ans
   seedDatabase(db.rw, { asOf: "2026-11-16" });
   const repo = new Repo(db.rw);
   const { client, calls } = fakeClient([
-    { content: [{ type: "text", text: "Checking delays." }, { type: "tool_use", id: "tu_1", name: "list_projects", input: { min_delay_days: 180, sort_by: "delay" } }], stop_reason: "tool_use" },
-    { content: [{ type: "text", text: "Six projects are more than six months late." }], stop_reason: "end_turn" },
+    { text: "Checking delays. ", calls: [{ id: "call_1", name: "list_projects", args: { min_delay_days: 180, sort_by: "delay" } }] },
+    { text: "Six projects are more than six months late." },
   ]);
   const events: string[] = [];
   const result = await runAgent({ client, repo, ro: db.ro, history: [], question: "Which projects are badly delayed?", emit: (e) => events.push(e.type) });
 
   assert.equal(calls.length, 2);
-  assert.equal(calls[0].model, "claude-opus-5-5");
-  assert.equal(calls[0].fallbacks, "default");
-  assert.deepEqual(calls[0].betas, ["server-side-fallback-2026-07-01"]);
-  assert.ok(calls[0].tools.every((t: any) => t.eager_input_streaming === true));
-  const toolResultMsg = calls[1].messages.at(-1);
-  assert.equal(toolResultMsg.role, "user");
-  assert.equal(toolResultMsg.content[0].type, "tool_result");
-  assert.equal(toolResultMsg.content[0].tool_use_id, "tu_1");
-  assert.match(toolResultMsg.content[0].content, /"count":/);
+  assert.equal(calls[0].model, "openai/gpt-oss-120b");
+  assert.equal(calls[0].stream, true);
+  assert.equal(calls[0].messages[0].role, "system");
+  assert.ok(calls[0].tools.every((t: any) => t.type === "function" && t.function.name && t.function.parameters));
+  assert.equal(calls[0].reasoning_effort, "medium");
+  assert.equal(calls[0].include_reasoning, false);
+  const msgs = calls[1].messages;
+  const assistant = msgs.at(-2);
+  assert.equal(assistant.role, "assistant");
+  assert.equal(assistant.tool_calls[0].id, "call_1");
+  assert.deepEqual(JSON.parse(assistant.tool_calls[0].function.arguments), { min_delay_days: 180, sort_by: "delay" }); // reassembled from split deltas
+  const toolMsg = msgs.at(-1);
+  assert.equal(toolMsg.role, "tool");
+  assert.equal(toolMsg.tool_call_id, "call_1");
+  assert.match(toolMsg.content, /"count":/);
 
   assert.match(result.text, /six months late/);
-  assert.equal(result.appended.length, 4); // user, assistant(tool_use), user(tool_result), assistant
+  assert.equal(result.appended.length, 4); // user, assistant(tool_calls), tool, assistant
   assert.ok(result.artifacts.some((a) => a.type === "table"));
   assert.deepEqual(result.tools, ["list_projects"]);
   assert.ok(events.includes("tool") && events.includes("artifact") && events.includes("text"));
 });
 
-test("agent loop: bad tool input becomes an is_error result instead of crashing", async () => {
+test("agent loop: a refused SQL write comes back as a tool error instead of crashing", async () => {
   const db = openDb(":memory:");
   seedDatabase(db.rw, { asOf: "2026-11-16" });
   const { client, calls } = fakeClient([
-    { content: [{ type: "tool_use", id: "tu_1", name: "query_database", input: { sql: "DELETE FROM projects", title: "x" } }], stop_reason: "tool_use" },
-    { content: [{ type: "text", text: "I can only read data." }], stop_reason: "end_turn" },
+    { calls: [{ id: "call_1", name: "query_database", args: { sql: "DELETE FROM projects", title: "x" } }] },
+    { text: "I can only read data." },
   ]);
   const result = await runAgent({ client, repo: new Repo(db.rw), ro: db.ro, history: [], question: "delete everything", emit: () => {} });
-  const tr = calls[1].messages.at(-1).content[0];
-  assert.equal(tr.is_error, true);
-  assert.match(tr.content, /only SELECT|not allowed/i);
+  const toolMsg = calls[1].messages.at(-1);
+  assert.equal(toolMsg.role, "tool");
+  assert.match(toolMsg.content, /only SELECT|not allowed/i);
   assert.equal((db.rw.prepare("SELECT COUNT(*) n FROM projects").get() as { n: number }).n, 48);
   assert.match(result.text, /read data/);
 });
 
-test("chat falls back to the offline engine when Claude errors or refuses", async () => {
-  for (const failure of [new Anthropic.APIConnectionError({ message: "network down" }), { content: [], stop_reason: "refusal" } as Step]) {
+test("chat falls back to the offline engine when Groq errors", async () => {
+  for (const failure of [new Groq.APIConnectionError({ message: "network down" }), new Error("unexpected failure")]) {
     const { client } = fakeClient([failure]);
     const { base, db, close } = await start(client);
     try {
@@ -180,11 +192,25 @@ test("chat falls back to the offline engine when Claude errors or refuses", asyn
       assert.equal(r.done.meta.mode, "offline");
       assert.match(r.done.meta.notice, /unavailable/);
       assert.match(r.done.text, /stalled/i);
-      // History stays valid for the next Claude turn: a user message then an assistant text reply.
-      const rows = db.rw.prepare("SELECT role FROM api_messages WHERE conversation_id=? ORDER BY id").all(conv.id) as { role: string }[];
+      // History stays valid for the next model turn: a user message then an assistant text reply.
+      const rows = db.rw.prepare("SELECT role, content FROM api_messages WHERE conversation_id=? ORDER BY id").all(conv.id) as { role: string; content: string }[];
       assert.deepEqual(rows.map((x) => x.role), ["user", "assistant"]);
+      assert.equal(JSON.parse(rows[1].content).role, "assistant");
     } finally {
       await close();
     }
+  }
+});
+
+test("reports use the model's narrative when Groq is configured", async () => {
+  const narrative = "@@SUMMARY\nThe portfolio is behind plan.\n@@CONCERNS\n- Konark is late.\n@@ACTIONS\n1. Hold a review.\n@@OUTLOOK\nWatch the SPI.";
+  const { client } = fakeClient([{ text: narrative }]);
+  const { base, close } = await start(client);
+  try {
+    const r = await (await fetch(`${base}/api/reports`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: "portfolio" }) })).json();
+    assert.match(r.generated_by, /^groq/);
+    assert.match(r.body_md, /The portfolio is behind plan/);
+  } finally {
+    await close();
   }
 });

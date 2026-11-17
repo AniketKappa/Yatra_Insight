@@ -1,5 +1,5 @@
 // Analysis tools. The same implementations serve two callers:
-//  - Claude, through tool use (llm/agent.ts)
+//  - the Groq-hosted model, through tool calling (llm/agent.ts)
 //  - the offline engine, which calls them directly (llm/offline.ts)
 // Every tool returns { forModel: compact JSON the LLM reads, artifacts: what the UI shows }.
 
@@ -210,7 +210,7 @@ export function validateChart(input: unknown): ChartSpec | string {
   };
 }
 
-// ---- Claude tool definitions ---------------------------------------------------
+// ---- Tool definitions (JSON Schema) ---------------------------------------------------
 
 export const TOOL_DEFS = [
   {
