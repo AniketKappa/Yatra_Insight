@@ -7,7 +7,7 @@ import { Card, Empty, ErrorState, HealthBadge, ProgressBar, RiskPill, Skeleton }
 import { FilterRow, useUrlFilters } from "./Overview";
 import { downloadText, toCsv } from "../components/Artifacts";
 import { IconArrowDown, IconArrowUp, IconDownload, IconPlus, IconSearch } from "../components/Icons";
-import { AddProjectForm } from "../components/AddProjectForm";
+import { ProjectForm } from "../components/ProjectForm";
 import { useStore } from "../lib/store";
 import { useToast } from "../components/ui";
 
@@ -163,7 +163,7 @@ export function Projects() {
           </div>
         </div>
       ))}
-      <AddProjectForm open={adding} onClose={() => setAdding(false)} onSaved={(p) => {
+      <ProjectForm open={adding} onClose={() => setAdding(false)} onSaved={(p) => {
         setAdding(false);
         refreshProjects();
         reload();

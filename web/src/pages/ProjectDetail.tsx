@@ -7,7 +7,8 @@ import { useStore } from "../lib/store";
 import { fmtCr, fmtDate, fmtDays, fmtMonth, fmtPct } from "../lib/format";
 import { ChartFrame, DataTable, LineChart } from "../components/charts";
 import { Card, Empty, ErrorState, Field, HealthBadge, Modal, PageSkeleton, ProgressBar, RiskPill, SeverityBadge, riskColor, useToast } from "../components/ui";
-import { IconBuilding, IconCalendar, IconCheckCircle, IconEdit, IconMapPin, IconPlus, IconReport, IconSpark, IconUser } from "../components/Icons";
+import { IconBuilding, IconCalendar, IconCheckCircle, IconEdit, IconMapPin, IconPlus, IconReport, IconSpark, IconTrash, IconUser } from "../components/Icons";
+import { ProjectForm } from "../components/ProjectForm";
 
 export function ProjectDetailPage({ id }: { id: number }) {
   const { data: d, error, loading, reload, setData, refreshing } = useApi<ProjectDetail>(Number.isInteger(id) && id > 0 ? `/api/projects/${id}` : null);
@@ -18,6 +19,9 @@ export function ProjectDetailPage({ id }: { id: number }) {
   const [progressOpen, setProgressOpen] = useState(false);
   const [issueOpen, setIssueOpen] = useState(false);
   const [genBusy, setGenBusy] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   if (!Number.isInteger(id) || id <= 0 || error?.status === 404) {
     return <div className="page"><Empty title="Project not found" action={<Link to="/projects" className="btn btn-primary">See all projects</Link>}>It may have been removed, or the link is wrong.</Empty></div>;
@@ -45,7 +49,13 @@ export function ProjectDetailPage({ id }: { id: number }) {
 
   return (
     <div className={`page ${refreshing ? "refetching" : ""}`}>
-      <nav className="crumbs" aria-label="Breadcrumb"><Link to="/projects">Projects</Link><span aria-hidden="true">/</span><span>{d.code}</span></nav>
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: "var(--s-4)" }}>
+        <nav className="crumbs" aria-label="Breadcrumb" style={{ marginBottom: 0 }}><Link to="/projects">Projects</Link><span aria-hidden="true">/</span><span>{d.code}</span></nav>
+        <div className="row">
+          <button className="btn btn-ghost btn-sm" onClick={() => setEditOpen(true)}><IconEdit size={14} />Edit project</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setDeleteOpen(true)}><IconTrash size={14} />Delete project</button>
+        </div>
+      </div>
       <div className="page-head">
         <div style={{ minWidth: 0, flex: "1 1 520px" }}>
           <p className="eyebrow">{d.scheme} · {d.category}</p>
@@ -153,6 +163,26 @@ export function ProjectDetailPage({ id }: { id: number }) {
         </div>
       </div>
       <ProgressForm open={progressOpen} onClose={() => setProgressOpen(false)} d={d} onSaved={(next) => { setProgressOpen(false); updated(next, "Progress recorded and analytics recalculated."); }} />
+      <ProjectForm open={editOpen} project={d} onClose={() => setEditOpen(false)} onSaved={(next) => { setEditOpen(false); updated(next, "Project details saved and analytics recalculated."); }} />
+      <Modal open={deleteOpen} onClose={() => !deleting && setDeleteOpen(false)} title={`Delete ${d.code}?`} labelledBy="delete-project-title"
+        footer={<>
+          <button className="btn btn-ghost" type="button" onClick={() => setDeleteOpen(false)} disabled={deleting}>Keep project</button>
+          <button className="btn btn-primary" type="button" disabled={deleting} style={{ background: "var(--crit)", color: "var(--on-fill)" }} onClick={async () => {
+            setDeleting(true);
+            try {
+              await api(`/api/projects/${d.id}`, { method: "DELETE" });
+              refreshProjects();
+              toast(`${d.code} deleted.`);
+              navigate("/projects");
+            } catch (e) {
+              toast((e as Error).message, "err");
+              setDeleting(false);
+            }
+          }}>{deleting && <span className="spinner" />}Delete permanently</button>
+        </>}>
+        <p><strong style={{ fontWeight: 500 }}>{d.name}</strong> will be removed with its {d.reports.length} monthly report{d.reports.length === 1 ? "" : "s"}, {d.milestones.length} milestones and {d.issues.length} issue{d.issues.length === 1 ? "" : "s"}.</p>
+        <p className="muted small">This can't be undone. Saved progress reports that mention it keep their text.</p>
+      </Modal>
       <IssueForm open={issueOpen} onClose={() => setIssueOpen(false)} d={d} onSaved={(next) => { setIssueOpen(false); updated(next, "Issue logged."); }} />
     </div>
   );

@@ -259,3 +259,21 @@ test("POST /api/projects creates a project; bad input returns field errors", asy
     await close();
   }
 });
+
+test("PUT and DELETE /api/projects/:id", async () => {
+  const { base, close } = await start(null);
+  try {
+    const d = await (await fetch(`${base}/api/projects/37`)).json();
+    const body = { destination: d.destination, title: "Renamed works", state: d.state, district: d.district, scheme: d.scheme, category: d.category, implementing_agency: d.implementing_agency, nodal_officer: d.nodal_officer, sanctioned_cost_cr: d.sanctioned_cost_cr, start_date: d.start_date, planned_end_date: d.planned_end_date };
+    const put = await fetch(`${base}/api/projects/37`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    assert.equal(put.status, 200);
+    assert.equal((await put.json()).name, `${d.destination} — Renamed works`);
+    const bad = await fetch(`${base}/api/projects/37`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, sanctioned_cost_cr: -1 }) });
+    assert.equal(bad.status, 422);
+    assert.equal((await fetch(`${base}/api/projects/37`, { method: "DELETE" })).status, 204);
+    assert.equal((await fetch(`${base}/api/projects/37`)).status, 404);
+    assert.equal((await fetch(`${base}/api/projects/37`, { method: "DELETE" })).status, 404);
+  } finally {
+    await close();
+  }
+});

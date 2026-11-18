@@ -197,73 +197,125 @@ export class Repo {
     return this.detail(projectId);
   }
 
-  addProject(input: Record<string, unknown>) {
+  /** One set of rules for adding and editing a project. Returns clean values or throws field errors. */
+  private validateProject(input: Record<string, unknown>, existing?: Project) {
     const str = (k: string, max = 160) => String(input[k] ?? "").trim().replace(/\s+/g, " ").slice(0, max);
-    const destination = str("destination", 80);
-    const title = str("title", 120);
-    const state = str("state", 60);
-    const district = str("district", 60);
-    const scheme = str("scheme", 80);
-    const category = str("category", 40);
-    const agency = str("implementing_agency", 120);
-    const officer = str("nodal_officer", 80);
-    const description = String(input.description ?? "").trim().slice(0, 1000);
-    const cost = Number(input.sanctioned_cost_cr);
-    const start = String(input.start_date ?? "");
-    const end = String(input.planned_end_date ?? "");
+    const v = {
+      destination: str("destination", 80),
+      title: str("title", 120),
+      state: str("state", 60),
+      district: str("district", 60),
+      scheme: str("scheme", 80),
+      category: str("category", 40),
+      agency: str("implementing_agency", 120),
+      officer: str("nodal_officer", 80),
+      description: String(input.description ?? "").trim().slice(0, 1000),
+      cost: Number(input.sanctioned_cost_cr),
+      revised: input.revised_cost_cr === undefined || input.revised_cost_cr === null || input.revised_cost_cr === "" ? null : Number(input.revised_cost_cr),
+      start: String(input.start_date ?? ""),
+      end: String(input.planned_end_date ?? ""),
+    };
     const today = todayISO();
     const errors: Record<string, string> = {};
 
-    if (destination.length < 2) errors.destination = "Enter the destination, e.g. Hampi.";
-    if (title.length < 3) errors.title = "Describe the work, e.g. Visitor centre and parking.";
-    if (!Object.hasOwn(STATE_CODES, state)) errors.state = "Choose a state or union territory.";
-    if (district.length < 2) errors.district = "Enter the district.";
-    const schemeKey = (Object.keys(SCHEMES) as SchemeKey[]).find((k) => SCHEMES[k].name === scheme);
+    if (v.destination.length < 2) errors.destination = "Enter the destination, e.g. Hampi.";
+    if (v.title.length < 3) errors.title = "Describe the work, e.g. Visitor centre and parking.";
+    if (!Object.hasOwn(STATE_CODES, v.state)) errors.state = "Choose a state or union territory.";
+    if (v.district.length < 2) errors.district = "Enter the district.";
+    const schemeKey = (Object.keys(SCHEMES) as SchemeKey[]).find((k) => SCHEMES[k].name === v.scheme);
     if (!schemeKey) errors.scheme = "Choose a scheme.";
-    if (!(CATEGORIES as string[]).includes(category)) errors.category = "Choose a category.";
-    if (agency.length < 2) errors.implementing_agency = "Enter the implementing agency.";
-    if (officer.length < 2) errors.nodal_officer = "Enter the nodal officer's name.";
-    if (!Number.isFinite(cost) || cost <= 0) errors.sanctioned_cost_cr = "Enter the sanctioned cost in ₹ crore (more than 0).";
-    else if (cost > 5000) errors.sanctioned_cost_cr = "That's more than ₹5,000 cr. Check the unit: figures are in crore.";
-    if (!isValidISODate(start)) errors.start_date = "Choose the planned start date.";
-    else if (start < addDays(today, -365 * 10)) errors.start_date = "The start date is more than 10 years ago.";
-    if (!isValidISODate(end)) errors.planned_end_date = "Choose the planned completion date.";
-    else if (isValidISODate(start) && daysBetween(start, end) < 90) errors.planned_end_date = "Completion must be at least 3 months after the start.";
-    else if (isValidISODate(start) && daysBetween(start, end) > 365 * 10) errors.planned_end_date = "The project can't run longer than 10 years.";
-    const name = `${destination} — ${title}`;
-    if (!errors.destination && !errors.title && this.db.prepare("SELECT 1 FROM projects WHERE lower(name) = lower(?)").get(name)) {
+    if (!(CATEGORIES as string[]).includes(v.category)) errors.category = "Choose a category.";
+    if (v.agency.length < 2) errors.implementing_agency = "Enter the implementing agency.";
+    if (v.officer.length < 2) errors.nodal_officer = "Enter the nodal officer's name.";
+    if (!Number.isFinite(v.cost) || v.cost <= 0) errors.sanctioned_cost_cr = "Enter the sanctioned cost in ₹ crore (more than 0).";
+    else if (v.cost > 5000) errors.sanctioned_cost_cr = "That's more than ₹5,000 cr. Check the unit: figures are in crore.";
+    if (v.revised !== null) {
+      if (!Number.isFinite(v.revised) || v.revised <= 0) errors.revised_cost_cr = "Enter the revised cost in ₹ crore, or leave it blank.";
+      else if (Number.isFinite(v.cost) && v.cost > 0 && v.revised > v.cost * 3) errors.revised_cost_cr = "That's over three times the sanctioned cost. Check the unit: figures are in crore.";
+    }
+    if (!isValidISODate(v.start)) errors.start_date = "Choose the planned start date.";
+    else if (v.start < addDays(today, -365 * 10) && v.start !== existing?.start_date) errors.start_date = "The start date is more than 10 years ago.";
+    if (!isValidISODate(v.end)) errors.planned_end_date = "Choose the planned completion date.";
+    else if (isValidISODate(v.start) && daysBetween(v.start, v.end) < 90) errors.planned_end_date = "Completion must be at least 3 months after the start.";
+    else if (isValidISODate(v.start) && daysBetween(v.start, v.end) > 365 * 10) errors.planned_end_date = "The project can't run longer than 10 years.";
+    if (existing && isValidISODate(v.start)) {
+      const first = this.db.prepare("SELECT MIN(month) AS m FROM progress_reports WHERE project_id = ?").get(existing.id) as { m: string | null };
+      if (first.m && v.start.slice(0, 7) > first.m) errors.start_date = `Progress was already reported for ${first.m}; the start can't be later than that month.`;
+    }
+    const name = `${v.destination} — ${v.title}`;
+    if (!errors.destination && !errors.title && this.db.prepare("SELECT 1 FROM projects WHERE lower(name) = lower(?) AND id != ?").get(name, existing?.id ?? -1)) {
       errors.title = "A project with this destination and name already exists.";
     }
     if (Object.keys(errors).length) throw new ValidationError(errors);
+    return { ...v, name, schemeKey: schemeKey!, cost: Math.round(v.cost * 100) / 100, revised: v.revised === null ? null : Math.round(v.revised * 100) / 100 };
+  }
 
+  /** Planned windows for the six standard milestones, along the same S-curve the analytics use. */
+  private milestonePlan(start: string, end: string) {
+    const total = daysBetween(start, end);
+    let prevCum = 0;
+    let prevEnd = start;
+    return MILESTONES.map((m, k) => {
+      const plannedEnd = k === MILESTONES.length - 1 ? end : addDays(start, Math.round(inverseSCurve(m.cum / 100) * total));
+      const row = { seq: k + 1, name: m.name, weight: m.cum - prevCum, plannedStart: prevEnd, plannedEnd };
+      prevCum = m.cum;
+      prevEnd = plannedEnd;
+      return row;
+    });
+  }
+
+  addProject(input: Record<string, unknown>) {
+    const v = this.validateProject(input);
+    const today = todayISO();
     // Code: <scheme>-<state>-<serial>, the serial one above the highest in use for that scheme.
-    const rows = this.db.prepare("SELECT code FROM projects WHERE code LIKE ?").all(`${schemeKey}-%`) as { code: string }[];
+    const rows = this.db.prepare("SELECT code FROM projects WHERE code LIKE ?").all(`${v.schemeKey}-%`) as { code: string }[];
     const serial = Math.max(100, ...rows.map((r) => Number(r.code.split("-").at(-1)) || 0)) + 1;
-    const code = `${schemeKey}-${STATE_CODES[state]}-${String(serial).padStart(4, "0")}`;
-    const status = start > today ? "Not started" : "In progress";
-    const desc = description || `${title} at ${destination}, ${district} district, ${state}. Sanctioned under ${scheme}; executed by ${agency}.`;
+    const code = `${v.schemeKey}-${STATE_CODES[v.state]}-${String(serial).padStart(4, "0")}`;
+    const status = v.start > today ? "Not started" : "In progress";
+    const desc = v.description || `${v.title} at ${v.destination}, ${v.district} district, ${v.state}. Sanctioned under ${v.scheme}; executed by ${v.agency}.`;
 
     const id = tx(this.db, () => {
       const r = this.db.prepare(`INSERT INTO projects (code, name, destination, scheme, state, district, category, implementing_agency, nodal_officer,
         description, sanctioned_cost_cr, revised_cost_cr, start_date, planned_end_date, actual_end_date, status, lat, lng)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,NULL,?,NULL,NULL)`)
-        .run(code, name, destination, scheme, state, district, category, agency, officer, desc, Math.round(cost * 100) / 100, start, end, status);
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,NULL,NULL)`)
+        .run(code, v.name, v.destination, v.scheme, v.state, v.district, v.category, v.agency, v.officer, desc, v.cost, v.revised, v.start, v.end, status);
       const projectId = Number(r.lastInsertRowid);
-      // The six standard milestones, planned along the same S-curve the analytics use.
-      const total = daysBetween(start, end);
       const ins = this.db.prepare(`INSERT INTO milestones (project_id, seq, name, weight_pct, planned_start, planned_end, progress_pct) VALUES (?,?,?,?,?,?,0)`);
-      let prevCum = 0;
-      let prevEnd = start;
-      MILESTONES.forEach((m, k) => {
-        const plannedEnd = k === MILESTONES.length - 1 ? end : addDays(start, Math.round(inverseSCurve(m.cum / 100) * total));
-        ins.run(projectId, k + 1, m.name, m.cum - prevCum, prevEnd, plannedEnd);
-        prevCum = m.cum;
-        prevEnd = plannedEnd;
-      });
+      for (const m of this.milestonePlan(v.start, v.end)) ins.run(projectId, m.seq, m.name, m.weight, m.plannedStart, m.plannedEnd);
       return projectId;
     });
     this.invalidate();
     return this.detail(id);
+  }
+
+  /** Edit a project's details. The code stays the same; new dates replan the milestones' planned windows
+   * (recorded progress and actual dates are kept). */
+  updateProject(projectId: number, input: Record<string, unknown>) {
+    const existing = this.db.prepare("SELECT * FROM projects WHERE id = ?").get(projectId) as unknown as Project | undefined;
+    if (!existing) throw new NotFoundError(`Project ${projectId} not found`);
+    const v = this.validateProject(input, existing);
+    const hasReports = Boolean(this.db.prepare("SELECT 1 FROM progress_reports WHERE project_id = ? LIMIT 1").get(projectId));
+    let status = existing.status;
+    if (!hasReports && (status === "Not started" || status === "In progress")) status = v.start > todayISO() ? "Not started" : "In progress";
+    tx(this.db, () => {
+      this.db.prepare(`UPDATE projects SET name=?, destination=?, scheme=?, state=?, district=?, category=?, implementing_agency=?, nodal_officer=?,
+        description=?, sanctioned_cost_cr=?, revised_cost_cr=?, start_date=?, planned_end_date=?, status=? WHERE id=?`)
+        .run(v.name, v.destination, v.scheme, v.state, v.district, v.category, v.agency, v.officer,
+          v.description || existing.description, v.cost, v.revised, v.start, v.end, status, projectId);
+      if (v.start !== existing.start_date || v.end !== existing.planned_end_date) {
+        const upd = this.db.prepare("UPDATE milestones SET planned_start=?, planned_end=? WHERE project_id=? AND seq=?");
+        for (const m of this.milestonePlan(v.start, v.end)) upd.run(m.plannedStart, m.plannedEnd, projectId, m.seq);
+      }
+    });
+    this.invalidate();
+    return this.detail(projectId);
+  }
+
+  /** Delete a project with its milestones, monthly reports and issues. Saved reports keep their text. */
+  deleteProject(projectId: number) {
+    const r = this.db.prepare("DELETE FROM projects WHERE id = ?").run(projectId);
+    if (!r.changes) throw new NotFoundError(`Project ${projectId} not found`);
+    this.invalidate();
   }
 
   addIssue(projectId: number, input: Record<string, unknown>) {

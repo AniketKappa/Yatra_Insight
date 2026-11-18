@@ -174,3 +174,45 @@ test("adding a project validates input, generates a code and plans six milestone
   const after = repo.addProgressReport(live.id, { month: "2026-10", physical_pct: 12, expenditure_cr: 3.1, reported_by: "R. Varma" });
   assert.equal(after.metrics.actualPct, 12);
 });
+
+test("editing a project keeps its code, replans milestones and validates against its history", () => {
+  const { repo } = setup();
+  const v = repo.views().find((x) => x.metrics.health === "On track" && x.metrics.actualPct > 20)!;
+  const d = repo.detail(v.id);
+  const base = {
+    destination: d.destination, title: d.name.slice(d.destination.length + 3), state: d.state, district: d.district, scheme: d.scheme,
+    category: d.category, implementing_agency: d.implementing_agency, nodal_officer: d.nodal_officer,
+    sanctioned_cost_cr: d.sanctioned_cost_cr, start_date: d.start_date, planned_end_date: d.planned_end_date,
+  };
+  const later = "2029-06-30";
+  const e = repo.updateProject(d.id, { ...base, nodal_officer: "New Officer", planned_end_date: later, revised_cost_cr: d.sanctioned_cost_cr * 1.2 });
+  assert.equal(e.code, d.code);
+  assert.equal(e.nodal_officer, "New Officer");
+  assert.equal(e.planned_end_date, later);
+  assert.equal(e.milestones.at(-1)!.planned_end, later);
+  assert.equal(e.metrics.escalationPct, 20);
+  assert.equal(e.reports.length, d.reports.length); // progress kept
+  assert.ok(e.milestones.some((m) => m.actual_end)); // actual dates kept
+
+  // The start can't move after a month that already has a report.
+  try { repo.updateProject(d.id, { ...base, start_date: "2026-11-01", planned_end_date: "2029-06-30" }); assert.fail("should throw"); }
+  catch (err) { assert.ok(err instanceof ValidationError && "start_date" in err.fields, String(err)); }
+  // Renaming onto another project's name is refused; keeping its own name is fine.
+  const other = repo.views().find((x) => x.id !== d.id)!;
+  try { repo.updateProject(d.id, { ...base, destination: other.destination, title: other.name.slice(other.destination.length + 3) }); assert.fail("should throw"); }
+  catch (err) { assert.ok(err instanceof ValidationError && "title" in err.fields); }
+  assert.throws(() => repo.updateProject(99999, base), NotFoundError);
+});
+
+test("deleting a project removes it with its reports, milestones and issues", () => {
+  const { db, repo } = setup();
+  const v = repo.views().find((x) => x.metrics.openIssues > 0)!;
+  const before = repo.portfolio().totals.projects;
+  repo.deleteProject(v.id);
+  assert.equal(repo.portfolio().totals.projects, before - 1);
+  for (const t of ["milestones", "progress_reports", "issues", "project_metrics"]) {
+    assert.equal((db.rw.prepare(`SELECT COUNT(*) n FROM ${t} WHERE project_id = ?`).get(v.id) as { n: number }).n, 0, t);
+  }
+  assert.throws(() => repo.detail(v.id), NotFoundError);
+  assert.throws(() => repo.deleteProject(v.id), NotFoundError);
+});
