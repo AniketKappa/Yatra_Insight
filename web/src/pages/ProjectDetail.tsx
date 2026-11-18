@@ -303,7 +303,7 @@ function IssuesCard({ d, onChanged, onAdd }: { d: ProjectDetail; onChanged: (n: 
 
 // ---- Forms ---------------------------------------------------------------------------------
 
-function useForm<T extends Record<string, string>>(initial: T) {
+export function useForm<T extends Record<string, string>>(initial: T) {
   const [values, setValues] = useState<T>(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);

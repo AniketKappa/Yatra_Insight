@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { ProjectView } from "../../../server/types";
 import { useApi, useDocumentTitle, useMediaQuery } from "../lib/hooks";
 import { Link, useRouter } from "../lib/router";
@@ -6,7 +6,10 @@ import { fmtCr, fmtDays, plural } from "../lib/format";
 import { Card, Empty, ErrorState, HealthBadge, ProgressBar, RiskPill, Skeleton } from "../components/ui";
 import { FilterRow, useUrlFilters } from "./Overview";
 import { downloadText, toCsv } from "../components/Artifacts";
-import { IconArrowDown, IconArrowUp, IconDownload, IconSearch } from "../components/Icons";
+import { IconArrowDown, IconArrowUp, IconDownload, IconPlus, IconSearch } from "../components/Icons";
+import { AddProjectForm } from "../components/AddProjectForm";
+import { useStore } from "../lib/store";
+import { useToast } from "../components/ui";
 
 type SortKey = "name" | "state" | "health" | "progress" | "spi" | "delay" | "overrun" | "budget" | "risk";
 const HEALTH_RANK = { "Off track": 0, "On hold": 1, "At risk": 2, "Not started": 3, "On track": 4, Completed: 5 } as const;
@@ -46,6 +49,9 @@ export function Projects() {
   const { data, error, loading, refreshing, reload } = useApi<ProjectView[]>(`/api/projects${qs ? `?${qs}` : ""}`);
   const mobile = useMediaQuery("(max-width: 767px)");
   const { navigate } = useRouter();
+  const { refreshProjects } = useStore();
+  const toast = useToast();
+  const [adding, setAdding] = useState(false);
 
   const rows = useMemo(() => {
     let list = data ?? [];
@@ -82,7 +88,10 @@ export function Projects() {
           <h1><span className="rise">Tourism projects</span></h1>
           <p className="lede">{data ? `${plural(rows.length, "project")}${rows.length !== data.length ? ` of ${data.length}` : ""} · sorted by ${COLS.find((c) => c.key === sort)?.label.toLowerCase() ?? sort}` : "Loading…"}</p>
         </div>
-        <button className="btn btn-secondary" onClick={exportCsv} disabled={!rows.length}><IconDownload size={16} />Export CSV</button>
+        <div className="row">
+          <button className="btn btn-secondary" onClick={exportCsv} disabled={!rows.length}><IconDownload size={16} />Export CSV</button>
+          <button className="btn btn-primary" onClick={() => setAdding(true)}><IconPlus size={16} />Add a project</button>
+        </div>
       </div>
       <FilterRow value={filters} onChange={(v) => setFilters({ ...v, ...(filters.sort ? { sort: filters.sort, dir: filters.dir ?? "" } : {}) })} showHealth showSearch />
       {error && <ErrorState error={error} onRetry={reload} />}
@@ -154,6 +163,13 @@ export function Projects() {
           </div>
         </div>
       ))}
+      <AddProjectForm open={adding} onClose={() => setAdding(false)} onSaved={(p) => {
+        setAdding(false);
+        refreshProjects();
+        reload();
+        toast(`${p.code} added.`);
+        navigate(`/projects/${p.id}`);
+      }} />
     </div>
   );
 }

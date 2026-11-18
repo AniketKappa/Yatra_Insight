@@ -20,10 +20,10 @@ function mulberry32(seed: number) {
   };
 }
 
-type Category = "Heritage" | "Pilgrimage" | "Eco-tourism" | "Coastal" | "Adventure" | "Rural" | "Buddhist" | "Wellness";
-type SchemeKey = "SD2" | "PRASHAD" | "CBDD" | "SASCI" | "ACA";
+export type Category = "Heritage" | "Pilgrimage" | "Eco-tourism" | "Coastal" | "Adventure" | "Rural" | "Buddhist" | "Wellness";
+export type SchemeKey = "SD2" | "PRASHAD" | "CBDD" | "SASCI" | "ACA";
 
-const SCHEMES: Record<SchemeKey, { name: string; min: number; max: number }> = {
+export const SCHEMES: Record<SchemeKey, { name: string; min: number; max: number }> = {
   SD2: { name: "Swadesh Darshan 2.0", min: 22, max: 95 },
   PRASHAD: { name: "PRASHAD", min: 18, max: 60 },
   CBDD: { name: "Challenge Based Destination Development", min: 9, max: 38 },
@@ -31,14 +31,18 @@ const SCHEMES: Record<SchemeKey, { name: string; min: number; max: number }> = {
   ACA: { name: "Assistance to Central Agencies", min: 6, max: 24 },
 };
 
-const STATE_CODES: Record<string, string> = {
+export const STATE_CODES: Record<string, string> = {
   Karnataka: "KA", Kerala: "KL", "Tamil Nadu": "TN", Puducherry: "PY", "Andhra Pradesh": "AP",
   Telangana: "TS", Maharashtra: "MH", Goa: "GA", Gujarat: "GJ", Rajasthan: "RJ",
   "Madhya Pradesh": "MP", Bihar: "BR", "Uttar Pradesh": "UP", Uttarakhand: "UK",
   "Himachal Pradesh": "HP", "Jammu & Kashmir": "JK", Ladakh: "LA", Punjab: "PB", Haryana: "HR",
   Odisha: "OD", "West Bengal": "WB", Assam: "AS", Sikkim: "SK", Meghalaya: "ML",
   "Arunachal Pradesh": "AR", Nagaland: "NL", "Andaman & Nicobar": "AN",
+  // not used by the demo seed, available for new projects
+  Chhattisgarh: "CG", Jharkhand: "JH", Manipur: "MN", Mizoram: "MZ", Tripura: "TR", Delhi: "DL",
+  Chandigarh: "CH", Lakshadweep: "LD", "Dadra & Nagar Haveli and Daman & Diu": "DH",
 };
+export const CATEGORIES: Category[] = ["Heritage", "Pilgrimage", "Eco-tourism", "Coastal", "Adventure", "Rural", "Buddhist", "Wellness"];
 
 // [destination, state, district, category, scheme, lat, lng]
 const DESTINATIONS: [string, string, string, Category, SchemeKey, number, number][] = [
@@ -136,7 +140,7 @@ const OFFICERS = [
   "Tenzin Norbu", "Sneha Patnaik", "Gaurav Chauhan", "Rupali Bora", "Aditya Menon",
 ];
 
-const MILESTONES: { name: string; cum: number }[] = [
+export const MILESTONES: { name: string; cum: number }[] = [
   { name: "DPR approval & technical sanction", cum: 4 },
   { name: "Tendering & work order", cum: 9 },
   { name: "Site mobilisation & enabling works", cum: 20 },

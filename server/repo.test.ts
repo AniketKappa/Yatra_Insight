@@ -132,3 +132,45 @@ test("offline engine answers the core question types", () => {
   const alias = ask("delayed projects in UP");
   assert.match(alias.text, /Uttar Pradesh/);
 });
+
+test("adding a project validates input, generates a code and plans six milestones", () => {
+  const { repo } = setup();
+  const good = {
+    destination: "Lepakshi", title: "Temple precinct visitor centre", state: "Andhra Pradesh", district: "Sri Sathya Sai",
+    scheme: "PRASHAD", category: "Heritage", implementing_agency: "APTDC", nodal_officer: "R. Varma",
+    sanctioned_cost_cr: 24.5, start_date: "2027-01-01", planned_end_date: "2028-12-31",
+  };
+  const expectFields = (input: Record<string, unknown>, field: string) => {
+    try { repo.addProject(input); assert.fail("should have thrown"); }
+    catch (e) { assert.ok(e instanceof ValidationError, String(e)); assert.ok(field in e.fields, `expected ${field}, got ${JSON.stringify(e.fields)}`); }
+  };
+  expectFields({ ...good, destination: " " }, "destination");
+  expectFields({ ...good, state: "Atlantis" }, "state");
+  expectFields({ ...good, scheme: "Made up" }, "scheme");
+  expectFields({ ...good, category: "Space" }, "category");
+  expectFields({ ...good, sanctioned_cost_cr: 0 }, "sanctioned_cost_cr");
+  expectFields({ ...good, sanctioned_cost_cr: 99999 }, "sanctioned_cost_cr");
+  expectFields({ ...good, planned_end_date: "2027-02-01" }, "planned_end_date");
+  expectFields({ ...good, start_date: "2027-13-01" }, "start_date");
+
+  const before = repo.views().length;
+  const d = repo.addProject(good);
+  assert.match(d.code, /^PRASHAD-AP-\d{4}$/);
+  assert.equal(d.name, "Lepakshi — Temple precinct visitor centre");
+  assert.equal(d.status, "Not started");
+  assert.equal(d.metrics.health, "Not started");
+  assert.equal(d.milestones.length, 6);
+  assert.equal(d.milestones[5].planned_end, "2028-12-31");
+  assert.equal(d.milestones.reduce((s, m) => s + m.weight_pct, 0), 100);
+  assert.equal(repo.views().length, before + 1);
+  expectFields(good, "title"); // duplicate name
+
+  const second = repo.addProject({ ...good, title: "Parking and amenities" });
+  assert.ok(Number(second.code.slice(-4)) > Number(d.code.slice(-4)), "serials increase");
+
+  // A project that has already started shows as in progress and can take a report at once.
+  const live = repo.addProject({ ...good, title: "Ghat steps", start_date: "2026-06-01", planned_end_date: "2027-12-31" });
+  assert.equal(live.status, "In progress");
+  const after = repo.addProgressReport(live.id, { month: "2026-10", physical_pct: 12, expenditure_cr: 3.1, reported_by: "R. Varma" });
+  assert.equal(after.metrics.actualPct, 12);
+});

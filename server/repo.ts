@@ -3,7 +3,9 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { Issue, Milestone, PortfolioFilters, ProgressReport, Project, ProjectDetail, ProjectView } from "./types.ts";
 import { computeMetrics, computePortfolio, plannedSeries, type ProjectBundle } from "./analytics.ts";
-import { isValidMonth, monthEnd, monthOf, todayISO } from "./lib/dates.ts";
+import { addDays, daysBetween, isValidISODate, isValidMonth, monthEnd, monthOf, todayISO } from "./lib/dates.ts";
+import { inverseSCurve } from "./lib/curves.ts";
+import { CATEGORIES, MILESTONES, SCHEMES, STATE_CODES, type SchemeKey } from "./seed.ts";
 import { tx } from "./db.ts";
 
 export class ValidationError extends Error {
@@ -108,6 +110,15 @@ export class Repo {
     return scored[0]?.v ?? null;
   }
 
+  /** Everything the Add project form can choose from (full lists, not only what is in use). */
+  catalog() {
+    return {
+      states: Object.keys(STATE_CODES).sort(),
+      schemes: Object.values(SCHEMES).map((x) => x.name),
+      categories: [...CATEGORIES],
+    };
+  }
+
   facets() {
     const views = this.views();
     const uniq = (fn: (v: ProjectView) => string) => [...new Set(views.map(fn))].sort();
@@ -184,6 +195,75 @@ export class Repo {
     });
     this.invalidate();
     return this.detail(projectId);
+  }
+
+  addProject(input: Record<string, unknown>) {
+    const str = (k: string, max = 160) => String(input[k] ?? "").trim().replace(/\s+/g, " ").slice(0, max);
+    const destination = str("destination", 80);
+    const title = str("title", 120);
+    const state = str("state", 60);
+    const district = str("district", 60);
+    const scheme = str("scheme", 80);
+    const category = str("category", 40);
+    const agency = str("implementing_agency", 120);
+    const officer = str("nodal_officer", 80);
+    const description = String(input.description ?? "").trim().slice(0, 1000);
+    const cost = Number(input.sanctioned_cost_cr);
+    const start = String(input.start_date ?? "");
+    const end = String(input.planned_end_date ?? "");
+    const today = todayISO();
+    const errors: Record<string, string> = {};
+
+    if (destination.length < 2) errors.destination = "Enter the destination, e.g. Hampi.";
+    if (title.length < 3) errors.title = "Describe the work, e.g. Visitor centre and parking.";
+    if (!Object.hasOwn(STATE_CODES, state)) errors.state = "Choose a state or union territory.";
+    if (district.length < 2) errors.district = "Enter the district.";
+    const schemeKey = (Object.keys(SCHEMES) as SchemeKey[]).find((k) => SCHEMES[k].name === scheme);
+    if (!schemeKey) errors.scheme = "Choose a scheme.";
+    if (!(CATEGORIES as string[]).includes(category)) errors.category = "Choose a category.";
+    if (agency.length < 2) errors.implementing_agency = "Enter the implementing agency.";
+    if (officer.length < 2) errors.nodal_officer = "Enter the nodal officer's name.";
+    if (!Number.isFinite(cost) || cost <= 0) errors.sanctioned_cost_cr = "Enter the sanctioned cost in ₹ crore (more than 0).";
+    else if (cost > 5000) errors.sanctioned_cost_cr = "That's more than ₹5,000 cr. Check the unit: figures are in crore.";
+    if (!isValidISODate(start)) errors.start_date = "Choose the planned start date.";
+    else if (start < addDays(today, -365 * 10)) errors.start_date = "The start date is more than 10 years ago.";
+    if (!isValidISODate(end)) errors.planned_end_date = "Choose the planned completion date.";
+    else if (isValidISODate(start) && daysBetween(start, end) < 90) errors.planned_end_date = "Completion must be at least 3 months after the start.";
+    else if (isValidISODate(start) && daysBetween(start, end) > 365 * 10) errors.planned_end_date = "The project can't run longer than 10 years.";
+    const name = `${destination} — ${title}`;
+    if (!errors.destination && !errors.title && this.db.prepare("SELECT 1 FROM projects WHERE lower(name) = lower(?)").get(name)) {
+      errors.title = "A project with this destination and name already exists.";
+    }
+    if (Object.keys(errors).length) throw new ValidationError(errors);
+
+    // Code: <scheme>-<state>-<serial>, the serial one above the highest in use for that scheme.
+    const rows = this.db.prepare("SELECT code FROM projects WHERE code LIKE ?").all(`${schemeKey}-%`) as { code: string }[];
+    const serial = Math.max(100, ...rows.map((r) => Number(r.code.split("-").at(-1)) || 0)) + 1;
+    const code = `${schemeKey}-${STATE_CODES[state]}-${String(serial).padStart(4, "0")}`;
+    const status = start > today ? "Not started" : "In progress";
+    const desc = description || `${title} at ${destination}, ${district} district, ${state}. Sanctioned under ${scheme}; executed by ${agency}.`;
+
+    const id = tx(this.db, () => {
+      const r = this.db.prepare(`INSERT INTO projects (code, name, destination, scheme, state, district, category, implementing_agency, nodal_officer,
+        description, sanctioned_cost_cr, revised_cost_cr, start_date, planned_end_date, actual_end_date, status, lat, lng)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,NULL,?,NULL,NULL)`)
+        .run(code, name, destination, scheme, state, district, category, agency, officer, desc, Math.round(cost * 100) / 100, start, end, status);
+      const projectId = Number(r.lastInsertRowid);
+      // The six standard milestones, planned along the same S-curve the analytics use.
+      const total = daysBetween(start, end);
+      const ins = this.db.prepare(`INSERT INTO milestones (project_id, seq, name, weight_pct, planned_start, planned_end, progress_pct) VALUES (?,?,?,?,?,?,0)`);
+      let prevCum = 0;
+      let prevEnd = start;
+      MILESTONES.forEach((m, k) => {
+        const plannedEnd = k === MILESTONES.length - 1 ? end : addDays(start, Math.round(inverseSCurve(m.cum / 100) * total));
+        ins.run(projectId, k + 1, m.name, m.cum - prevCum, prevEnd, plannedEnd);
+        prevCum = m.cum;
+        prevEnd = plannedEnd;
+      });
+      return projectId;
+    });
+    this.invalidate();
+    return this.detail(id);
   }
 
   addIssue(projectId: number, input: Record<string, unknown>) {

@@ -19,6 +19,7 @@ Officials monitoring projects under schemes such as Swadesh Darshan 2.0, PRASHAD
 | **Delays, overruns and risks, automatically** | Every project gets a forecast finish date and final cost (earned schedule and earned value), a health status, flags, and a 0–100 risk score with each factor explained. |
 | **Corrective measures** | Specific actions, each with an owner and a priority, tied to the flag or open issue behind it. |
 | **Progress reports** | Portfolio, filtered or single-project reports, with a narrative written by the AI model. They print cleanly to PDF and download as Markdown. |
+| **Add projects** | **Add a project** on the Projects page: a validated form generates the project code (scheme, state, serial) and the six standard milestones from the planned dates. |
 | **Milestones and monthly updates** | Milestone timelines and early-warning alerts. Recording a monthly report (with validation) recalculates everything. |
 | **Works without an API key** | An offline analysis engine answers common questions from the same data, and the app falls back to it if Groq is unavailable. |
 
@@ -118,7 +119,7 @@ Needs Node.js 24 or later on the server.
 ### Before going live
 
 - The demo has **no login**. Put it behind your organisation's SSO or an authenticating proxy before using real data.
-- To load real projects, replace `server/seed.ts` with an import from your Project Monitoring System. All analytics recalculate from the `projects`, `milestones`, `progress_reports` and `issues` tables.
+- Add real projects with **Add a project** (or `POST /api/projects`), or replace `server/seed.ts` with an import from your Project Monitoring System. All analytics recalculate from the `projects`, `milestones`, `progress_reports` and `issues` tables.
 
 ## How the numbers are computed
 

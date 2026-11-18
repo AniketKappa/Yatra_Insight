@@ -70,6 +70,8 @@ export function createApp(db: Db, opts: { client?: Groq | null } = {}) {
 
   app.get("/api/projects/:id", (req, res) => res.json(repo.detail(idParam(req.params.id))));
 
+  app.get("/api/catalog", (_req, res) => res.json(repo.catalog()));
+  app.post("/api/projects", (req, res) => res.status(201).json(repo.addProject(req.body ?? {})));
   app.post("/api/projects/:id/progress", (req, res) => res.status(201).json(repo.addProgressReport(idParam(req.params.id), req.body ?? {})));
   app.post("/api/projects/:id/issues", (req, res) => res.status(201).json(repo.addIssue(idParam(req.params.id), req.body ?? {})));
   app.patch("/api/issues/:id", (req, res) => res.json(repo.updateIssueStatus(idParam(req.params.id), String(req.body?.status ?? ""))));

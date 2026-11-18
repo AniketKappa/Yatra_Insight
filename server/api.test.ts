@@ -240,3 +240,22 @@ test("agent retries once when Groq rejects a tool call's arguments", async () =>
   assert.ok(statuses.some((m) => /Retrying/.test(m)));
   assert.match(calls[2].messages.at(-1).content, /"totals"/); // nulls were treated as "no filter"
 });
+
+test("POST /api/projects creates a project; bad input returns field errors", async () => {
+  const { base, close } = await start(null);
+  try {
+    const cat = await (await fetch(`${base}/api/catalog`)).json();
+    assert.ok(cat.states.length >= 36 && cat.schemes.includes("PRASHAD") && cat.categories.includes("Heritage"));
+    const post = (json: unknown) => fetch(`${base}/api/projects`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(json) });
+    const bad = await post({ destination: "" });
+    assert.equal(bad.status, 422);
+    assert.ok(Object.keys((await bad.json()).fields).length >= 5);
+    const res = await post({ destination: "Lepakshi", title: "Visitor centre", state: "Andhra Pradesh", district: "Sri Sathya Sai", scheme: "PRASHAD", category: "Heritage", implementing_agency: "APTDC", nodal_officer: "R. Varma", sanctioned_cost_cr: 24.5, start_date: "2027-01-01", planned_end_date: "2028-12-31" });
+    assert.equal(res.status, 201);
+    const p = await res.json();
+    const list = await (await fetch(`${base}/api/projects`)).json();
+    assert.ok(list.some((v: any) => v.id === p.id));
+  } finally {
+    await close();
+  }
+});
