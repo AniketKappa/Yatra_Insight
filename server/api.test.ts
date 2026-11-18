@@ -216,11 +216,11 @@ test("reports use the model's narrative when Groq is configured", async () => {
 });
 
 test("tool schemas sent to Groq accept null for optional filters, but not for required ones", () => {
-  const summary = TOOLS.find((t) => t.function.name === "portfolio_summary")!.function.parameters as any;
+  const summary = (TOOLS.find((t) => t.function?.name === "portfolio_summary")!.function!.parameters as any);
   for (const k of ["state", "scheme", "category"]) assert.deepEqual(summary.properties[k].type, ["string", "null"]);
-  const list = TOOLS.find((t) => t.function.name === "list_projects")!.function.parameters as any;
+  const list = (TOOLS.find((t) => t.function?.name === "list_projects")!.function!.parameters as any);
   assert.ok(list.properties.sort_by.enum.includes(null));
-  const project = TOOLS.find((t) => t.function.name === "get_project")!.function.parameters as any;
+  const project = (TOOLS.find((t) => t.function?.name === "get_project")!.function!.parameters as any);
   assert.equal(project.properties.project.type, "string"); // required stays strict
 });
 
