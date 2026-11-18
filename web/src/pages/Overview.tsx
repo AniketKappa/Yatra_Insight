@@ -135,6 +135,7 @@ export function Overview() {
                 </ChartFrame>
               </Card>
               <StateCard p={p} onPick={(state) => setFilters({ ...filters, state })} />
+              <AlertsCard p={p} />
             </div>
             <div className="stack">
               <Card title="Projects by health" sub="Click a segment to see those projects">
@@ -145,7 +146,6 @@ export function Overview() {
               <MilestonesCard p={p} />
             </div>
           </div>
-          <AlertsCard p={p} />
         </div>
       )}
     </div>
@@ -212,7 +212,7 @@ function AttentionCard({ p }: { p: Portfolio }) {
     <Card title="Projects that need attention" sub="Highest risk first" actions={<Link to="/projects?sort=risk" className="btn btn-ghost btn-sm">See all projects<IconChevronRight size={14} /></Link>}>
       {p.topRisks.length === 0 ? <Empty icon={<IconCheckCircle />} title="Nothing at risk">Every project is on track.</Empty> : (
         <div className="list">
-          {p.topRisks.slice(0, 6).map((r) => (
+          {p.topRisks.slice(0, 4).map((r) => (
             <Link key={r.id} to={`/projects/${r.id}`} className="list-item list-link">
               <div style={{ flex: 1, minWidth: 0 }}>
                 <span className="cell-title">{r.name}</span>
@@ -254,7 +254,7 @@ function MilestonesCard({ p }: { p: Portfolio }) {
 }
 
 function AlertsCard({ p }: { p: Portfolio }) {
-  const items = p.alerts.slice(0, 8);
+  const items = p.alerts.slice(0, 5);
   if (!items.length) return null;
   return (
     <Card title="Critical and high alerts" sub="Automatically raised from the latest data" actions={<Link to="/alerts" className="btn btn-ghost btn-sm">See all alerts<IconChevronRight size={14} /></Link>}>
