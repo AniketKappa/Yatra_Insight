@@ -8,7 +8,7 @@ import { openDb } from "./db.ts";
 import { seedDatabase } from "./seed.ts";
 import { createApp } from "./app.ts";
 import { Repo } from "./repo.ts";
-import { runAgent } from "./llm/agent.ts";
+import { runAgent, TOOLS } from "./llm/agent.ts";
 
 process.env.AS_OF_DATE = "2026-11-16";
 
@@ -213,4 +213,30 @@ test("reports use the model's narrative when Groq is configured", async () => {
   } finally {
     await close();
   }
+});
+
+test("tool schemas sent to Groq accept null for optional filters, but not for required ones", () => {
+  const summary = TOOLS.find((t) => t.function.name === "portfolio_summary")!.function.parameters as any;
+  for (const k of ["state", "scheme", "category"]) assert.deepEqual(summary.properties[k].type, ["string", "null"]);
+  const list = TOOLS.find((t) => t.function.name === "list_projects")!.function.parameters as any;
+  assert.ok(list.properties.sort_by.enum.includes(null));
+  const project = TOOLS.find((t) => t.function.name === "get_project")!.function.parameters as any;
+  assert.equal(project.properties.project.type, "string"); // required stays strict
+});
+
+test("agent retries once when Groq rejects a tool call's arguments", async () => {
+  const db = openDb(":memory:");
+  seedDatabase(db.rw, { asOf: "2026-11-16" });
+  const rejected = Object.assign(new Error("400 Tool call validation failed: parameters for tool portfolio_summary did not match schema"), { status: 400, error: { error: { code: "tool_use_failed" } } });
+  const { client, calls } = fakeClient([
+    rejected,
+    { calls: [{ id: "call_1", name: "portfolio_summary", args: { state: null, scheme: null, category: null } }] },
+    { text: "48 projects; 14 are off track." },
+  ]);
+  const statuses: string[] = [];
+  const result = await runAgent({ client, repo: new Repo(db.rw), ro: db.ro, history: [], question: "Portfolio summary", emit: (e) => { if (e.type === "status") statuses.push(e.message); } });
+  assert.equal(calls.length, 3);
+  assert.match(result.text, /off track/);
+  assert.ok(statuses.some((m) => /Retrying/.test(m)));
+  assert.match(calls[2].messages.at(-1).content, /"totals"/); // nulls were treated as "no filter"
 });

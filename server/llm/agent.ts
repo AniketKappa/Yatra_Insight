@@ -31,10 +31,29 @@ How to work:
 - Answer in concise Markdown: lead with the direct answer in one or two sentences, then supporting points. Use short headings only for long answers. No preamble.
 - If the user writes in Hindi or another language, answer in that language.`;
 
+/** Groq validates tool arguments against the schema, and models often send null for filters they
+ * don't use. Optional properties therefore also accept null (tools.ts already ignores nulls). */
+function nullableOptionals(schema: Record<string, any>): Record<string, unknown> {
+  const required = new Set<string>(schema.required ?? []);
+  const properties: Record<string, unknown> = {};
+  for (const [key, prop] of Object.entries<any>(schema.properties ?? {})) {
+    if (required.has(key) || !prop.type) { properties[key] = prop; continue; }
+    const types = Array.isArray(prop.type) ? prop.type : [prop.type];
+    properties[key] = { ...prop, type: types.includes("null") ? types : [...types, "null"], ...(prop.enum ? { enum: [...prop.enum, null] } : {}) };
+  }
+  return { ...schema, properties };
+}
+
 export const TOOLS: Groq.Chat.ChatCompletionTool[] = TOOL_DEFS.map((t) => ({
   type: "function" as const,
-  function: { name: t.name, description: t.description, parameters: t.input_schema as unknown as Record<string, unknown> },
+  function: { name: t.name, description: t.description, parameters: nullableOptionals(t.input_schema as Record<string, any>) },
 }));
+
+/** Groq rejects a turn whose tool call fails its own validation ("tool_use_failed"); worth one retry. */
+function isToolValidationError(err: unknown): boolean {
+  const e = err as { status?: number; message?: string; error?: { error?: { code?: string } } };
+  return e?.status === 400 && (e.error?.error?.code === "tool_use_failed" || /tool call validation failed|tool_use_failed/i.test(e.message ?? ""));
+}
 
 export interface AgentResult {
   text: string;
@@ -75,9 +94,10 @@ export async function runAgent(opts: {
 
   const system: ChatMessage = { role: "system", content: `${SYSTEM_PROMPT}\n\nToday's date (the as-of date for all metrics) is ${todayISO()}.` };
 
+  let validationRetries = 0;
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
     const lastRound = round === MAX_TOOL_ROUNDS;
-    const stream = await client.chat.completions.create(
+    const request = () => client.chat.completions.create(
       {
         model: MODEL,
         messages: [system, ...history, ...appended],
@@ -95,7 +115,9 @@ export async function runAgent(opts: {
     let text = "";
     let finish: string | null = null;
     const calls = new Map<number, PendingCall>();
-    for await (const chunk of stream) {
+    try {
+      const stream = await request();
+      for await (const chunk of stream) {
       model = chunk.model ?? model;
       const choice = chunk.choices[0];
       if (!choice) continue;
@@ -112,6 +134,12 @@ export async function runAgent(opts: {
         calls.set(tc.index, cur);
       }
       if (choice.finish_reason) finish = choice.finish_reason;
+      }
+    } catch (err) {
+      if (!isToolValidationError(err) || validationRetries++ >= 1) throw err;
+      emit({ type: "status", message: "Retrying a malformed tool call…" });
+      round--;
+      continue;
     }
 
     const toolCalls = [...calls.values()].filter((c) => c.name);
